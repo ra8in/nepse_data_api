@@ -1,0 +1,47 @@
+MIT License
+
+Copyright (c) 2026 Your Name
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Data Source & Disclaimer
+
+This software fetches data from Nepal Stock Exchange (NEPSE) public APIs.
+- Data Source: https://www.nepalstock.com.np
+- This is an unofficial library and is not affiliated with or endorsed by NEPSE.
+- Use at your own risk. The authors are not responsible for any financial decisions made using this data.
+
+## Credits & Acknowledgments
+
+This library uses the following technologies:
+- pywasm (https://github.com/mohanson/pywasm) - For WASM authentication
+- requests (https://requests.readthedocs.io/) - For HTTP requests
+- aiohttp (https://docs.aiohttp.org/) - For async support
+
+Inspired by existing NEPSE data libraries in the Python ecosystem.
+
+## Fair Use Policy
+
+Please be respectful of NEPSE's servers:
+- Don't make excessive requests
+- Implement reasonable caching (this library does)
+- Don't use for commercial redistribution without proper authorization
+- This is for educational and personal portfolio tracking purposes
