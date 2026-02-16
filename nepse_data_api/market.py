@@ -828,18 +828,28 @@ class Nepse:
             return []
 
     def _ensure_security_ids(self):
-        """Load security IDs if not already loaded"""
+        """
+        Load security IDs if not already loaded.
+        Uses get_security_list() for comprehensive coverage of all tradable securities:
+        - Active stocks (status 'A')
+        - Suspended/newly-listed stocks (status 'S')
+        - Dormant stocks (not traded for weeks)
+        """
         if hasattr(self, 'security_id_map') and self.security_id_map:
             return
             
         print("Loading Security IDs map...")
         try:
-            securities = self.get_price_volume(use_cache=True)
+            # Use security_list for comprehensive coverage (544 securities vs 258 from price_volume)
+            securities = self.get_security_list(use_cache=True)
             self.security_id_map = {
-                s['symbol']: s['securityId'] for s in securities if 'symbol' in s
+                s['symbol']: s['id'] for s in securities if 'symbol' in s and 'id' in s
             }
-        except:
+            print(f"Loaded {len(self.security_id_map)} securities (active + suspended)")
+        except Exception as e:
+            print(f"Error loading security IDs: {e}")
             self.security_id_map = {}
+            
             
     def _get_floorsheet_payload_id(self, company_id: int, date_obj: datetime):
         """
