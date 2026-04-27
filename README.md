@@ -10,7 +10,7 @@
 
 ## ✨ Features
 
-- ✅ **26+ API Endpoints** - Complete NEPSE data coverage (Live Market, Floorsheets, Depth, etc.)
+- ✅ **27+ API Endpoints** - Complete NEPSE data coverage (Live Market, Floorsheets, Depth, Market Cap, etc.)
 - ✅ **WASM Authentication** - Secure, automated token generation and management
 - ✅ **Smart Caching** - Built-in caching layer (5700x faster for repeated requests)
 - ✅ **Async Support** - Full `async`/`await` support for high-concurrency applications
@@ -111,6 +111,17 @@ companies = nepse.get_company_list()
 securities = nepse.get_security_list()
 ```
 
+### Market Capitalization
+
+```python
+# Latest market cap (all recent business dates)
+marcap = nepse.get_marcapbydate()
+
+# Market cap for a specific business date
+marcap = nepse.get_marcapbydate(date="2026-04-24")
+# Returns: businessDate, marCap, senMarCap, floatMarCap, senFloatMarCap
+```
+
 ### Trading Data
 
 ```python
@@ -181,6 +192,10 @@ nepse-data-api/
     ├── security.py        # Token & Security utilities
     └── version.py         # Version info
 ```
+
+## 📋 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes and new features.
 
 ## 🤝 Contributing
 

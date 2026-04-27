@@ -447,6 +447,39 @@ class Nepse:
 
     # --- Market Metadata ---
 
+    def get_marcapbydate(self, date: str = None, use_cache: bool = True):
+        """
+        Get market capitalization, optionally filtered by date.
+        
+        Args:
+            date: Optional date in YYYY/MM/DD format (e.g., '2026/04/24')
+            use_cache: Whether to use cache (default: True)
+            
+        Returns:
+            List of market capitalization records
+        """
+        url = f"{self.BASE_URL}/api/nots/nepse-data/marcapbydate/"
+        if date:
+            url += f"?date={date}"
+            
+        cache_key = f"marcapbydate_{date if date else 'latest'}"
+        
+        if use_cache and self.cache:
+            return self._cached_get(cache_key, url, ttl=3600)
+            
+        try:
+            response = self.session.get(url, headers=self._get_auth_headers())
+            response.raise_for_status()
+            data = response.json()
+            
+            if self.cache and use_cache:
+                self.cache.set(cache_key, data, ttl=3600)
+                
+            return data
+        except Exception as e:
+            print(f"Error fetching market cap data: {e}")
+            return []
+
     def get_company_list(self, use_cache: bool = True):
         """Get list of all listed companies"""
         url = f"{self.BASE_URL}/api/nots/company/list"
@@ -456,6 +489,49 @@ class Nepse:
         """Get list of all securities (non-delisted)"""
         url = f"{self.BASE_URL}/api/nots/security?nonDelisted=true"
         return self._cached_get("security_list", url, ttl=3600) if use_cache else self.session.get(url, headers=self._get_auth_headers()).json()
+
+    def get_promoter_list(self, use_cache: bool = True):
+        """
+        Get list of all promoter securities.
+        Fetches thoroughly through pagination internally.
+        """
+        cache_key = "promoter_list"
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+                
+        all_promoters = []
+        current_page = 0
+        endpoint = f"{self.BASE_URL}/api/nots/security/promoters"
+        
+        try:
+            while True:
+                url = f"{endpoint}?size=500&page={current_page}"
+                response = self.session.get(url, headers=self._get_auth_headers())
+                response.raise_for_status()
+                
+                data = response.json()
+                content = data.get('content', [])
+                total_pages = data.get('totalPages', 0)
+                
+                if not content:
+                    break
+                    
+                all_promoters.extend(content)
+                
+                if current_page >= total_pages - 1:
+                    break
+                    
+                current_page += 1
+                
+            if self.cache and use_cache:
+                self.cache.set(cache_key, all_promoters, ttl=3600)
+                
+            return all_promoters
+        except Exception as e:
+            print(f"Error fetching promoter list: {e}")
+            return all_promoters
 
     # --- News & Corporate Actions ---
 
@@ -950,6 +1026,46 @@ class AsyncNepse:
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
             async with session.get(url, headers=headers) as response:
                 return await response.json()
+
+    async def get_promoter_list(self):
+        """Async get list of all promoter securities"""
+        if not self.access_token: await self.authenticate()
+        
+        cache_key = "promoter_list"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+            
+        endpoint = f"{self.BASE_URL}/api/nots/security/promoters"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        all_promoters = []
+        current_page = 0
+        
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            try:
+                while True:
+                    url = f"{endpoint}?size=500&page={current_page}"
+                    async with session.get(url, headers=headers) as response:
+                        data = await response.json()
+                        
+                        content = data.get('content', [])
+                        total_pages = data.get('totalPages', 0)
+                        
+                        if not content:
+                            break
+                            
+                        all_promoters.extend(content)
+                        
+                        if current_page >= total_pages - 1:
+                            break
+                            
+                        current_page += 1
+                        
+                self.cache.set(cache_key, all_promoters, ttl=3600)
+                return all_promoters
+            except Exception as e:
+                print(f"Error fetching promoter list async: {e}")
+                return all_promoters
 
     async def get_today_price(self, size: int = 500):
         """Async get today's price (OHLCV)"""
