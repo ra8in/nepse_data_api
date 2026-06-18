@@ -612,15 +612,23 @@ class Nepse:
             return []
 
     def get_security_details(self, security_id: int, use_cache: bool = True):
-        """Get detailed info for specific security by ID"""
+        """
+        Get detailed info for specific security by ID.
+        Uses POST with a dynamically calculated payload (stock-live formula)
+        to bypass the NEPSE WAF and get the FULL JSON including
+        marketCapitalization and stockListedShares.
+        """
         url = f"{self.BASE_URL}/api/nots/security/{security_id}"
         cache_key = f"sec_details_{security_id}"
         if use_cache and self.cache:
             cached = self.cache.get(cache_key)
             if cached: return cached
         try:
-            # Changed from POST to GET based on audit
-            response = self.session.get(url, headers=self._get_auth_headers())
+            # Must POST with a stock-live payload ID — this is what bypasses the WAF
+            # and tells NEPSE's server to return the full JSON (market cap, listed shares, etc.)
+            payload_id = self._get_stock_payload_id()
+            payload = {"id": payload_id}
+            response = self.session.post(url, headers=self._get_auth_headers(), json=payload, timeout=10)
             response.raise_for_status()
             data = response.json()
             if self.cache and use_cache:
@@ -962,6 +970,33 @@ class Nepse:
             self.authenticate()
             
         return int(e + self.salts[salt_index] * day - self.salts[salt_index - 1])
+
+    def _get_stock_payload_id(self) -> int:
+        """
+        Compute the payload ID for the 'stock-live' endpoint type.
+        Formula (reverse-engineered from NEPSE's JS bundle):
+            payload_id = DUMMY_DATA[market_open_id % 100] + market_open_id + 2 * today
+        No salts are required for this endpoint type.
+        """
+        DUMMY_DATA = [
+            147, 117, 239, 143, 157, 312, 161, 612, 512, 804,
+            411, 527, 170, 511, 421, 667, 764, 621, 301, 106,
+            133, 793, 411, 511, 312, 423, 344, 346, 653, 758,
+            342, 222, 236, 811, 711, 611, 122, 447, 128, 199,
+            183, 135, 489, 703, 800, 745, 152, 863, 134, 211,
+            142, 564, 375, 793, 212, 153, 138, 153, 648, 611,
+            151, 649, 318, 143, 117, 756, 119, 141, 717, 113,
+            112, 146, 162, 660, 693, 261, 362, 354, 251, 641,
+            157, 178, 631, 192, 734, 445, 192, 883, 187, 122,
+            591, 731, 852, 384, 565, 596, 451, 772, 624, 691,
+        ]
+        try:
+            status = self.get_market_status()
+            market_id = int(status.get('id', 1))
+        except Exception:
+            market_id = 1
+        today = datetime.now().day
+        return DUMMY_DATA[market_id % len(DUMMY_DATA)] + market_id + 2 * today
 
     def clear_cache(self):
         """Manually clear all cached data"""
