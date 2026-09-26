@@ -57,6 +57,32 @@ for stock in stocks[:5]:
     print(f"{stock['symbol']}: {stock['closePrice']}")
 ```
 
+## Historical Index Data
+
+```python
+from nepse_data_api import Nepse
+
+nepse = Nepse()
+
+# 1. Get the latest day's data for the NEPSE Index
+latest_nepse = nepse.get_index_history("nepse")
+print(f"NEPSE on {latest_nepse[0]['businessDate']}: {latest_nepse[0]['closingIndex']}")
+
+# 2. Get a historical date range for the Banking sub-index
+banking_history = nepse.get_index_history(
+    "banking", 
+    start_date="2026-08-01", 
+    end_date="2026-08-31"
+)
+print(f"Banking Index returned {len(banking_history)} days of history.")
+
+# 3. Get the latest day's data for ALL indices at once
+all_indices = nepse.get_index_history("all")
+for name, data in all_indices.items():
+    if data:
+        print(f"{name}: {data[0]['closingIndex']} ({data[0]['percentageChange']}%)")
+```
+
 ## Track Portfolio
 
 ```python

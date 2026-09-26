@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0.4] - 2026-09-27
+
+### Added
+- `get_index_history(index, start_date, end_date, size, limit)` — New method to fetch historical OHLCV data for the NEPSE index and sub-indices. Supports fetching by string names (e.g., `"Banking"`, `"NEPSE"`) or index ID.
+- `"all"` option for `get_index_history` — pass `"all"` to fetch historical data for all 17 indices simultaneously.
+
+### Fixed
+- `get_today_price(date)` — Fixed a bug where fetching historical dates returned a `401 Unauthorized` error. The payload ID is now correctly calculated using the current date instead of the requested historical date.
+- Response parsing in `get_today_price()` now correctly extracts data from the `{"content": [...]}` wrapper returned by the API.
+
+---
+
 ## [1.0.0.3] - 2026-06-19
 
 ### Fixed

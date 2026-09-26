@@ -53,11 +53,17 @@ status = nepse.get_market_status()
 # Market summary (turnover, transactions)
 summary = nepse.get_market_summary()
 
-# NEPSE main index
+# Live NEPSE main index
 index = nepse.get_nepse_index()
 
-# All sector indices
+# Live sector sub-indices
 sectors = nepse.get_sub_indices()
+
+# Historical index data (OHLCV)
+# Supports: "NEPSE", "Banking", "HydroPower", "all", etc.
+history = nepse.get_index_history("nepse")
+history_range = nepse.get_index_history("banking", start_date="2026-08-01", end_date="2026-09-01")
+all_indices = nepse.get_index_history("all")
 ```
 
 ### Stock Data

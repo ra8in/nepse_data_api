@@ -254,16 +254,23 @@ class Nepse:
 
     def get_today_price(self, size: int = 500, date: str = None, use_cache: bool = True):
         """
-        Get today's price (Live Market Data) with OHLCV for all companies
+        Get today's price (Live Market Data) with OHLCV for all companies.
+        Supports historical dates — pass any past trading date to get that day's data.
         
         Args:
             size: Number of records to fetch (default: 500)
-            date: Optional business date (YYYY-MM-DD format)
+            date: Optional business date (YYYY-MM-DD format). If None, returns
+                  the latest trading day's data automatically.
             use_cache: Whether to use caching
             
         Returns:
             List of dictionaries with complete OHLCV data:
             - symbol, openPrice, highPrice, lowPrice, closePrice, totalTradeQuantity
+            
+        Examples:
+            get_today_price()                        # Latest trading day
+            get_today_price(date="2026-09-23")       # Yesterday's data
+            get_today_price(date="2026-08-24")       # A month ago
         """
         # Build URL with optional date parameter
         date_param = f"&businessDate={date}" if date else ""
@@ -277,52 +284,25 @@ class Nepse:
                 return cached
         
         try:
-            # IMPORTANT: Use POST request with payload (not GET)
-            # This endpoint requires POST with payload ID
-            
-            # Use requested business date for payload ID calculation if provided
-            # Use requested business date for payload ID calculation if provided
-            payload_date = None
-            if date:
-                try:
-                    payload_date = datetime.strptime(date, "%Y-%m-%d")
-                except Exception:
-                    # Fallback to now if date format is invalid
-                    payload_date = datetime.now()
-            else:
-                # If no date provided, use the market "asOf" date to ensure we get data
-                # calling get_market_status to find the last trading day
-                try:
-                    status = self.get_market_status()
-                    if status and 'asOf' in status:
-                        # asOf format: 2026-02-12T15:00:00
-                        as_of_str = status['asOf'].split('T')[0]
-                        payload_date = datetime.strptime(as_of_str, "%Y-%m-%d")
-                except Exception as e:
-                    # Fallback to now
-                    print(f"Error fetching market status date: {e}")
-                    payload_date = datetime.now()
-            
-            if not payload_date:
-                payload_date = datetime.now()
-
-            # Fix: Ensure URL has businessDate if we determined a specific date
-            date_str = payload_date.strftime("%Y-%m-%d")
-            url = f"{self.BASE_URL}/api/nots/nepse-data/today-price?size={size}&businessDate={date_str}"
-
-            payload_id = self._get_floorsheet_payload_id(0, payload_date)
+            # IMPORTANT: Payload ID must ALWAYS be calculated using datetime.now(),
+            # NOT the requested businessDate. NEPSE's server validates the payload
+            # against the current date — using a historical date causes 401 errors.
+            payload_id = self._get_floorsheet_payload_id(0, datetime.now())
             payload = {"id": payload_id}
             
             response = self.session.post(url, headers=self._get_auth_headers(), json=payload)
             response.raise_for_status()
             
-            # API returns direct array (not wrapped in {content: []})
+            # API returns {"content": [...], "totalPages": N, ...}
             data = response.json()
+            content = data.get('content', []) if isinstance(data, dict) else data
             
             if self.cache:
-                self.cache.set(cache_key, data, ttl=15)  # Short TTL for live data
+                # Use longer TTL for historical data (it won't change)
+                ttl = 3600 if date else 15
+                self.cache.set(cache_key, content, ttl=ttl)
             
-            return data if isinstance(data, list) else []
+            return content
             
         except Exception as e:
             print(f"Error fetching today price: {e}")
@@ -610,6 +590,201 @@ class Nepse:
         except Exception as e:
             print(f"Error: {e}")
             return []
+
+    # Name → ID mapping for all NEPSE indices
+    INDEX_MAP = {
+        "nepse": 58, "nepse index": 58,
+        "sensitive": 57, "sensitive index": 57,
+        "float": 62, "float index": 62,
+        "sensitive float": 63, "sensitive float index": 63,
+        "banking": 51, "bank": 51, "banking subindex": 51,
+        "hotels": 52, "hotels and tourism": 52, "tourism": 52,
+        "others": 53, "others index": 53,
+        "hydropower": 54, "hydro": 54, "hydropower index": 54,
+        "development bank": 55, "dev bank": 55, "devbank": 55,
+        "manufacturing": 56, "manufacturing and processing": 56,
+        "non life insurance": 59, "non life": 59, "nonlife": 59,
+        "finance": 60, "finance index": 60,
+        "trading": 61, "trading index": 61,
+        "microfinance": 64, "micro finance": 64, "microfinance index": 64,
+        "life insurance": 65, "life": 65,
+        "mutual fund": 66, "mutual": 66,
+        "investment": 67, "investment index": 67,
+    }
+
+    def _resolve_index_id(self, index) -> int:
+        """Resolve an index name or ID to the numeric ID."""
+        if isinstance(index, int):
+            return index
+        
+        name = str(index).strip().lower()
+        
+        # Exact match
+        if name in self.INDEX_MAP:
+            return self.INDEX_MAP[name]
+        
+        # Partial match (find first key that contains the search term)
+        for key, idx_id in self.INDEX_MAP.items():
+            if name in key or key in name:
+                return idx_id
+        
+        raise ValueError(
+            f"Unknown index '{index}'. Available: "
+            f"NEPSE, Sensitive, Float, Banking, Hotels, Others, HydroPower, "
+            f"Dev Bank, Manufacturing, Non Life Insurance, Finance, Trading, "
+            f"Microfinance, Life Insurance, Mutual Fund, Investment"
+        )
+
+    def get_index_history(self, index = 58, start_date: str = None, end_date: str = None, size: int = None, limit: int = None, use_cache: bool = True):
+        """
+        Get historical OHLCV data for a NEPSE index or sub-index.
+        
+        Args:
+            index: Index name (str), ID (int), or "all" for every index.
+                   Default: 58 (NEPSE Index).
+                   Accepted names (case-insensitive):
+                     "NEPSE", "Sensitive", "Float", "Sensitive Float",
+                     "Banking", "Hotels", "Others", "HydroPower",
+                     "Dev Bank", "Manufacturing", "Non Life Insurance",
+                     "Finance", "Trading", "Microfinance",
+                     "Life Insurance", "Mutual Fund", "Investment",
+                     "all" — fetches history for ALL indices at once
+            start_date: Start date (YYYY-MM-DD). Fetches history from this date to today (or end_date).
+            end_date: End date (YYYY-MM-DD). Defaults to today if start_date is provided.
+            size: Page size (default: 500 if filtering by date, else 1 for latest day)
+            limit: Max pages to fetch per index.
+            use_cache: Whether to use caching
+            
+        Returns:
+            - Single index: List of dicts with keys:
+              businessDate, openIndex, highIndex, lowIndex, closingIndex,
+              fiftyTwoWeekHigh, fiftyTwoWeekLow, turnoverValue,
+              turnoverVolume, totalTransaction, absChange, percentageChange
+            - "all": Dict mapping index name → list of history dicts
+              
+        Examples:
+            get_index_history()                                      # Latest day for NEPSE Index
+            get_index_history("banking")                             # Latest day for Banking sub-index
+            get_index_history("banking", start_date="2026-08-01")    # Banking history from Aug 1st
+            get_index_history("all")                                 # Latest day for ALL indices
+            get_index_history("all", start_date="2026-09-01")        # All indices history from Sept 1st
+        """
+        # Handle "all" — fetch every index
+        if isinstance(index, str) and index.strip().lower() == "all":
+            return self._get_all_index_history(start_date=start_date, end_date=end_date, size=size, limit=limit, use_cache=use_cache)
+        
+        index_id = self._resolve_index_id(index)
+        return self._fetch_single_index_history(index_id, start_date=start_date, end_date=end_date, size=size, limit=limit, use_cache=use_cache)
+
+    def _fetch_single_index_history(self, index_id: int, start_date: str = None, end_date: str = None, size: int = None, limit: int = None, use_cache: bool = True):
+        """Fetch history for a single index by ID."""
+        # Default to fetching only the latest 1 day if no date/limits provided
+        if start_date is None and end_date is None and limit is None:
+            limit = 1
+            if size is None:
+                size = 1
+        elif (start_date or end_date) and size is None:
+            size = 500  # Fetch large pages to minimize requests when searching dates
+            
+        if size is None:
+            size = 20
+        if limit is None:
+            limit = 0
+            
+        cache_key = f"index_history_{index_id}_{start_date}_{end_date}_{size}_{limit}"
+        
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        
+        all_records = []
+        current_page = 0
+        pages_fetched = 0
+        
+        try:
+            while True:
+                url = f"{self.BASE_URL}/api/nots/index/history/{index_id}?size={size}&page={current_page}"
+                response = self.session.get(url, headers=self._get_auth_headers())
+                response.raise_for_status()
+                
+                data = response.json()
+                content = data.get('content', [])
+                total_pages = data.get('totalPages', 1)
+                
+                if not content:
+                    break
+                
+                stop_fetching = False
+                for row in content:
+                    row_date = row.get("businessDate")
+                    if not row_date:
+                        all_records.append(row)
+                        continue
+                        
+                    if end_date and row_date > end_date:
+                        continue
+                        
+                    if start_date and row_date < start_date:
+                        stop_fetching = True
+                        break
+                        
+                    all_records.append(row)
+                    
+                pages_fetched += 1
+                
+                if stop_fetching:
+                    break
+                
+                if current_page >= total_pages - 1:
+                    break
+                    
+                if limit > 0 and pages_fetched >= limit:
+                    break
+                    
+                current_page += 1
+                time.sleep(0.1)
+                
+            if self.cache and use_cache:
+                self.cache.set(cache_key, all_records, ttl=3600)
+                
+            return all_records
+            
+        except Exception as e:
+            print(f"Error fetching index history for {index_id}: {e}")
+            return all_records
+
+    def _get_all_index_history(self, start_date: str = None, end_date: str = None, size: int = None, limit: int = None, use_cache: bool = True):
+        """Fetch history for ALL indices and return as a dict keyed by index name."""
+        # Unique index ID → display name mapping
+        ALL_INDICES = {
+            58: "NEPSE Index", 57: "Sensitive Index",
+            62: "Float Index", 63: "Sensitive Float Index",
+            51: "Banking", 52: "Hotels And Tourism",
+            53: "Others", 54: "HydroPower",
+            55: "Development Bank", 56: "Manufacturing",
+            59: "Non Life Insurance", 60: "Finance",
+            61: "Trading", 64: "Microfinance",
+            65: "Life Insurance", 66: "Mutual Fund",
+            67: "Investment",
+        }
+        
+        cache_key = f"index_history_all_{start_date}_{end_date}_{size}_{limit}"
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        
+        result = {}
+        for idx_id, name in ALL_INDICES.items():
+            data = self._fetch_single_index_history(idx_id, start_date=start_date, end_date=end_date, size=size, limit=limit, use_cache=False)
+            result[name] = data
+            time.sleep(0.1)
+        
+        if self.cache and use_cache:
+            self.cache.set(cache_key, result, ttl=3600)
+        
+        return result
 
     def get_security_details(self, security_id: int, use_cache: bool = True):
         """
