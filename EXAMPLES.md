@@ -83,6 +83,68 @@ for name, data in all_indices.items():
         print(f"{name}: {data[0]['closingIndex']} ({data[0]['percentageChange']}%)")
 ```
 
+## Corporate Actions & Dividends
+
+```python
+from nepse_data_api import Nepse
+
+nepse = Nepse()
+
+# 1. Compact corporate actions per fiscal year (bonus share %, cash dividend %, right share %)
+corp_actions = nepse.get_corporate_actions("NABIL")
+for ca in corp_actions[:3]:
+    print(f"FY: {ca.get('fiscalYear')} | Bonus: {ca.get('bonusPercentage')}% | Cash: {ca.get('cashDividend')}%")
+
+# 2. Detailed dividend notices (with AGM date, book-close date, PDF documents)
+dividends = nepse.get_dividends("NABIL")
+for div in dividends[:2]:
+    news = div.get("companyNews", {})
+    print(news.get("newsHeadline"))
+```
+
+## Financial Reports (Quarterly / Annual)
+
+```python
+from nepse_data_api import Nepse
+
+nepse = Nepse()
+
+# Get quarterly and annual balance sheet reports (EPS, PE, Net Worth Per Share, Profit)
+reports = nepse.get_financial_reports("NABIL")
+for r in reports[:3]:
+    fr = r.get("fiscalReport") or {}
+    fy = (fr.get("financialYear") or {}).get("fyNameNepali")
+    quarter = (fr.get("quarterMaster") or {}).get("quarterName")
+    print(f"{fy} ({quarter}) -> EPS: {fr.get('epsValue')}, PE: {fr.get('peValue')}, NWPS: {fr.get('netWorthPerShare')}")
+```
+
+## Broker Information (Floorsheet Trades by Broker)
+
+```python
+from nepse_data_api import Nepse
+
+nepse = Nepse()
+
+# Filter today's floorsheet transactions for a specific broker (e.g. Broker #1)
+trades = nepse.get_broker_trades(broker_id=1, limit=5)
+print(f"Total Broker #1 trades: {trades.get('totalTrades')}")
+for t in trades.get("records", [])[:3]:
+    print(f"Symbol: {t.get('stockSymbol')} | Qty: {t.get('contractQuantity')} | Rate: {t.get('contractRate')}")
+```
+
+## Stock Price History (OHLCV)
+
+```python
+from nepse_data_api import Nepse
+
+nepse = Nepse()
+
+# Per-security datewise OHLCV
+ohlcv = nepse.get_stock_ohlcv("NABIL", size=10)
+for row in ohlcv[:5]:
+    print(f"{row.get('businessDate')} | O:{row.get('openPrice')} H:{row.get('highPrice')} L:{row.get('lowPrice')} C:{row.get('lastTradedPrice')} V:{row.get('totalTradeQuantity')}")
+```
+
 ## Track Portfolio
 
 ```python
@@ -133,4 +195,4 @@ async def monitor_market():
 asyncio.run(monitor_market())
 ```
 
-See the `test_suite/` directory for comprehensive examples of all features.
+For a complete list of all endpoints and parameters, see [available_apis.md](available_apis.md) or check the [`tests/`](tests/) directory.

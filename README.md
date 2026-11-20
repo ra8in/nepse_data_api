@@ -5,12 +5,13 @@
 [![PyPI](https://img.shields.io/pypi/v/nepse-data-api.svg)](https://pypi.org/project/nepse-data-api/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![API Reference](https://img.shields.io/badge/📡_API-Reference-blue.svg)](available_apis.md)
 
 **nepse-data-api** is a Python library for accessing market data from the Nepal Stock Exchange. It handles authentication, token management, and data scrambling automatically.
 
 ## ✨ Features
 
-- ✅ **27+ API Endpoints** - Complete NEPSE data coverage (Live Market, Floorsheets, Depth, Market Cap, etc.)
+- ✅ **37 API Endpoints** - Complete NEPSE data coverage (Live Market, Dividends, Corporate Actions, Floorsheets, OHLCV, Financials, etc.)
 - ✅ **WASM Authentication** - Secure, automated token generation and management
 - ✅ **Smart Caching** - Built-in caching layer (5700x faster for repeated requests)
 - ✅ **Async Support** - Full `async`/`await` support for high-concurrency applications
@@ -39,7 +40,7 @@ print(f"Market is currently: {status['isOpen']}")
 # Get top gainers
 gainers = nepse.get_top_gainers(limit=5)
 for stock in gainers:
-    print(f"{stock['symbol']}: {stock['lastTradedPrice']} ({stock['percentageChange']}%)")
+    print(f"{stock['symbol']}: {stock['ltp']} ({stock['percentageChange']}%)")
 ```
 
 ## 📖 API Reference
@@ -102,15 +103,32 @@ trades = nepse.get_top_trade()
 trans = nepse.get_top_transaction()
 ```
 
+### Dividends & Corporate Actions
+
+```python
+# 1. Official dividend notices (with AGM date, book-close date, filing PDFs)
+dividends = nepse.get_dividends("NABIL")  # alias: nepse.get_dividend("NABIL")
+
+# 2. Structured dividend history table (Bonus share %, Cash dividend %, Right share %)
+# Note: "Corporate actions" is the official NEPSE term for bonus/cash dividend history
+history = nepse.get_dividend_history("NABIL")  # alias: nepse.get_corporate_actions("NABIL")
+
+# AGM announcements
+agm = nepse.get_agm("NABIL")
+
+# Financial reports (Quarterly & Annual EPS, PE, Net Worth Per Share, Profit)
+reports = nepse.get_financial_reports("NABIL")
+```
+
 ### Company Information
 
 ```python
 # Company news
 news = nepse.get_company_news(symbol="NABIL")
 
-# Dividend & AGM
-dividends = nepse.get_dividends(symbol="NABIL")
-agm = nepse.get_agm(symbol="NABIL")
+# Company profile & Board of Directors
+profile = nepse.get_security_profile("NABIL")
+bod = nepse.get_board_of_directors("NABIL")
 
 # Metadata
 companies = nepse.get_company_list()

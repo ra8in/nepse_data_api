@@ -897,23 +897,100 @@ class Nepse:
             return {}
 
 
-    def get_dividends(self, symbol: str):
-        """Get dividend history for a specific company"""
-        self._ensure_security_ids()
-        company_id = self.security_id_map.get(symbol.upper())
-        if not company_id: return []
-        url = f"{self.BASE_URL}/api/nots/application/dividend/{company_id}"
-        response = self.session.get(url, headers=self._get_auth_headers())
-        return response.json()
+    def get_dividends(self, symbol: str, use_cache: bool = True) -> list:
+        """
+        Get dividend notices, announcements, and book closure filings for a company.
 
-    def get_agm(self, symbol: str):
-        """Get AGM information for a specific company"""
+        Endpoint: GET /api/nots/application/dividend/{security_id}
+
+        What this returns:
+            Official dividend declaration notices filed with NEPSE. Each record contains:
+            - companyNews:
+                - dividendsNotice: cashDividend %, bonusShare %, financialYear (e.g. '2082-2083')
+                - agmNotice: AGM date, book close date, venue, cash & bonus %
+                - newsHeadline, newsBody, publication dates
+            - applicationDocumentDetailsList: PDF document file paths of official filings
+
+        Conventional Naming & Comparison:
+            - Use `get_dividends(symbol)` (or `get_dividend(symbol)`) for official announcement notices
+              with AGM meeting dates, book closure dates, agendas, and PDF filings.
+            - If you want a clean per-fiscal-year numerical breakdown of bonus shares and cash dividends
+              without news text, use `get_dividend_history(symbol)` (or `get_corporate_actions(symbol)`).
+
+        Args:
+            symbol: Stock ticker e.g. "NABIL", "NLIC"
+            use_cache: Whether to use caching (default: True)
+
+        Returns:
+            List of dividend application / announcement notice dicts.
+        """
         self._ensure_security_ids()
         company_id = self.security_id_map.get(symbol.upper())
-        if not company_id: return []
+        if not company_id:
+            print(f"Symbol '{symbol}' not found in security map.")
+            return []
+
+        url = f"{self.BASE_URL}/api/nots/application/dividend/{company_id}"
+        cache_key = f"dividends_{symbol.upper()}"
+
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        try:
+            response = self.session.get(url, headers=self._get_auth_headers(), timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list) and self.cache and use_cache:
+                self.cache.set(cache_key, data, ttl=3600)
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            print(f"Error fetching dividends for {symbol}: {e}")
+            return []
+
+    # Alias: get_dividend is a conventional alias for get_dividends
+    get_dividend = get_dividends
+
+    def get_agm(self, symbol: str, use_cache: bool = True) -> list:
+        """
+        Get AGM (Annual General Meeting) announcements for a specific company.
+
+        Endpoint: GET /api/nots/application/agm/{security_id}
+
+        Args:
+            symbol:    Stock ticker e.g. "NABIL"
+            use_cache: Whether to use caching (default: True)
+
+        Returns:
+            List of AGM announcement dicts, each typically containing:
+              agmDate, agmType, agmVenue, agmAgenda, fiscalYear, etc.
+            Returns [] if symbol not found or on error.
+        """
+        self._ensure_security_ids()
+        company_id = self.security_id_map.get(symbol.upper())
+        if not company_id:
+            print(f"Symbol '{symbol}' not found in security map.")
+            return []
+
         url = f"{self.BASE_URL}/api/nots/application/agm/{company_id}"
-        response = self.session.get(url, headers=self._get_auth_headers())
-        return response.json()
+        cache_key = f"agm_{symbol.upper()}"
+
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        try:
+            response = self.session.get(url, headers=self._get_auth_headers(), timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            result = data if isinstance(data, list) else []
+            if result and use_cache and self.cache:
+                self.cache.set(cache_key, result, ttl=3600)
+            return result
+        except Exception as e:
+            print(f"Error fetching AGM for '{symbol}': {e}")
+            return []
 
     def get_market_depth(self, symbol: str):
         """
@@ -1173,6 +1250,338 @@ class Nepse:
         today = datetime.now().day
         return DUMMY_DATA[market_id % len(DUMMY_DATA)] + market_id + 2 * today
 
+    # ── Corporate Actions (Dividend & Bonus Share History) ────────────────────
+
+    def get_corporate_actions(self, symbol: str, use_cache: bool = True) -> list:
+        """
+        Get corporate actions / dividend history table for a company (bonus shares,
+        cash dividends, right shares).
+
+        Endpoint: GET /api/nots/security/corporate-actions/{security_id}
+
+        What is a "Corporate Action"?
+            In financial markets and NEPSE's backend, dividends, bonus shares,
+            and right shares are formally categorized as "Corporate Actions".
+            Many users intuitively search for "dividends" when looking for this data.
+            This endpoint provides the structured tabular dividend history.
+
+        What this returns:
+            List of yearly corporate action records with:
+            - fiscalYear: e.g. "2082-2083"
+            - bonusPercentage: Bonus share % approved (e.g. 5.0)
+            - cashDividend: Cash dividend % approved (e.g. 10.8)
+            - rightSharePercentage: Right share ratio/percentage if issued
+            - ratioNum, ratioDen: Ratio numerator & denominator
+            - activeStatus: Status e.g. 'BONUS_APPROVED'
+
+        Conventional Aliases:
+            - `get_corporate_actions(symbol)`: Formal financial terminology.
+            - `get_dividend_history(symbol)`: Conventional alias for intuitive discovery.
+
+        See Also:
+            - `get_dividends(symbol)` (or `get_dividend(symbol)`): Returns official dividend notices,
+              AGM meeting dates, book closure dates, agendas, and PDF filings.
+
+        Args:
+            symbol: Stock ticker e.g. "NABIL", "NLIC"
+            use_cache: Whether to use caching (default: True)
+
+        Returns:
+            List of dicts with keys:
+              activeStatus, submittedDate, ratioNum, ratioDen,
+              cashDividend, fiscalYear, bonusPercentage, rightSharePercentage
+        """
+        self._ensure_security_ids()
+        security_id = self.security_id_map.get(symbol.upper())
+        if not security_id:
+            print(f"Symbol '{symbol}' not found in security map.")
+            return []
+
+        url = f"{self.BASE_URL}/api/nots/security/corporate-actions/{security_id}"
+        cache_key = f"corp_actions_{symbol.upper()}"
+
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        try:
+            response = self.session.get(url, headers=self._get_auth_headers(), timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list) and self.cache and use_cache:
+                self.cache.set(cache_key, data, ttl=3600)
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            print(f"Error fetching corporate actions for {symbol}: {e}")
+            return []
+
+    # Alias: get_dividend_history is a conventional alias for get_corporate_actions
+    get_dividend_history = get_corporate_actions
+
+    # ── Financial Reports ──────────────────────────────────────────────────────
+
+    def get_financial_reports(self, symbol: str, use_cache: bool = True) -> list:
+        """
+        Get quarterly and annual financial reports for a company
+        (EPS, PE, net worth per share, profit, paid-up capital).
+
+        Endpoint: GET /api/nots/application/reports/{security_id}
+
+        Args:
+            symbol: Stock ticker e.g. "NABIL", "NLIC"
+            use_cache: Whether to use caching (default: True)
+
+        Returns:
+            List of report dicts. Each has a 'fiscalReport' sub-object with:
+              financialYear.fyNameNepali, quarterMaster.quarterName,
+              epsValue, peValue, netWorthPerShare, profitAmount, paidUpCapital
+            and 'applicationDocumentDetailsList' with PDF file paths.
+        """
+        self._ensure_security_ids()
+        security_id = self.security_id_map.get(symbol.upper())
+        if not security_id:
+            print(f"Symbol '{symbol}' not found in security map.")
+            return []
+
+        url = f"{self.BASE_URL}/api/nots/application/reports/{security_id}"
+        cache_key = f"fin_reports_{symbol.upper()}"
+
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        try:
+            response = self.session.get(url, headers=self._get_auth_headers(), timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list) and self.cache and use_cache:
+                self.cache.set(cache_key, data, ttl=3600)
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            print(f"Error fetching financial reports for {symbol}: {e}")
+            return []
+
+    # ── Broker Information (via Floorsheet) ───────────────────────────────────
+
+    def get_broker_trades(self, broker_id: int, size: int = 500,
+                          limit: int = None, page: int = 0) -> dict:
+        """
+        Get today's floorsheet records filtered by broker number.
+
+        NEPSE has no standalone /broker endpoint — all broker trade data
+        lives inside the floorsheet. This method filters by buyer OR seller
+        broker ID and returns combined trade records.
+
+        Endpoint: POST /api/nots/nepse-data/floorsheet?buyerBroker={id}
+                  POST /api/nots/nepse-data/floorsheet?sellerBroker={id}
+
+        Args:
+            broker_id: NEPSE broker number (1–100)
+            size:      Records per page (default: 500)
+            limit:     Max total records to fetch (None = all pages)
+            page:      Starting page (0-indexed, default: 0)
+
+        Returns:
+            dict with keys:
+              'totalTrades'  — total number of trades
+              'totalAmount'  — total trade amount
+              'totalQty'     — total quantity traded
+              'records'      — list of floorsheet rows, each with:
+                               stockSymbol, contractQuantity, contractRate,
+                               contractAmount, buyerMemberId, sellerMemberId,
+                               businessDate
+        """
+        def _fetch_page(broker_role: str, pg: int) -> dict:
+            url = (f"{self.BASE_URL}/api/nots/nepse-data/floorsheet"
+                   f"?{broker_role}={broker_id}&size={size}&page={pg}")
+            payload = {"id": self._get_floorsheet_payload_id(broker_id, datetime.now())}
+            resp = self.session.post(url, headers=self._get_auth_headers(),
+                                     json=payload, timeout=15)
+            resp.raise_for_status()
+            return resp.json()
+
+        try:
+            all_records = []
+            meta = {}
+
+            for role in ("buyerBroker", "sellerBroker"):
+                current_page = page
+                while True:
+                    data = _fetch_page(role, current_page)
+                    fs = data.get("floorsheets", {})
+                    content = fs.get("content", [])
+                    total_pages = fs.get("totalPages", 1)
+
+                    if not meta:
+                        meta = {
+                            "totalTrades":  data.get("totalTrade", 0),
+                            "totalAmount":  data.get("totalAmount", 0),
+                            "totalQty":     data.get("totalQty", 0),
+                        }
+
+                    all_records.extend(content)
+
+                    if limit and len(all_records) >= limit:
+                        all_records = all_records[:limit]
+                        break
+                    if current_page >= total_pages - 1:
+                        break
+                    current_page += 1
+
+            # Deduplicate: same trade appears on both buyerBroker and sellerBroker queries
+            seen_ids: set = set()
+            unique_records = []
+            for rec in all_records:
+                cid = rec.get("contractId")
+                if cid not in seen_ids:
+                    seen_ids.add(cid)
+                    unique_records.append(rec)
+
+            return {**meta, "records": unique_records}
+
+        except Exception as e:
+            print(f"Error fetching broker trades for broker #{broker_id}: {e}")
+            return {"records": []}
+
+    # ── Historical OHLCV (per-security price history) ─────────────────────────
+
+    def get_stock_ohlcv(self, symbol: str, page: int = 1, size: int = 500,
+                        date: str = None, use_cache: bool = True) -> list:
+        """
+        Get per-security price history (OHLCV) from the Price History tab.
+
+        Endpoint: GET /api/nots/market/security/price/{security_id}
+
+        Unlike get_historical_chart() which returns a compact graph payload,
+        this returns the full datewise OHLCV table that the NEPSE site
+        displays in the company modal → Price History tab.
+
+        Args:
+            symbol:    Stock ticker e.g. "NABIL"
+            page:      Page number, 1-indexed (default: 1)
+            size:      Records per page (default: 500)
+            date:      Filter by business date (YYYY-MM-DD), optional
+            use_cache: Whether to use caching (default: True)
+
+        Returns:
+            List of dicts with keys:
+              businessDate, openPrice, highPrice, lowPrice,
+              lastTradedPrice (close), totalTradeQuantity (volume),
+              totalTrades, totalTradeValue, averageTradedPrice
+        """
+        self._ensure_security_ids()
+        security_id = self.security_id_map.get(symbol.upper())
+        if not security_id:
+            print(f"Symbol '{symbol}' not found in security map.")
+            return []
+
+        if page > 1:
+            query = f"?page={page - 1}&size={size}"
+        else:
+            query = f"?size={size}"
+        if date:
+            query += f"&businessDate={date}"
+
+        url = f"{self.BASE_URL}/api/nots/market/security/price/{security_id}{query}"
+        cache_key = f"stock_ohlcv_{symbol.upper()}_{page}_{date}"
+
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        try:
+            response = self.session.get(url, headers=self._get_auth_headers(), timeout=10)
+            response.raise_for_status()
+            raw = response.json()
+            # API returns a Spring page: {"content": [...]} or {securityDailyTradeStatVos: {content: [...]}}
+            if isinstance(raw, dict):
+                data = raw.get("content") or (raw.get("securityDailyTradeStatVos") or {}).get("content", [])
+            else:
+                data = raw if isinstance(raw, list) else []
+            if self.cache and use_cache:
+                ttl = 1800 if date else 60
+                self.cache.set(cache_key, data, ttl=ttl)
+            return data
+        except Exception as e:
+            print(f"Error fetching stock OHLCV for {symbol}: {e}")
+            return []
+
+    # ── Security Profile & Board of Directors ─────────────────────────────────
+
+    def get_security_profile(self, symbol: str, use_cache: bool = True) -> dict:
+        """
+        Get company profile for a security (address, contacts, sector, description).
+
+        Endpoint: GET /api/nots/security/profile/{security_id}
+
+        Args:
+            symbol:    Stock ticker e.g. "NABIL"
+            use_cache: Whether to use caching (default: True)
+
+        Returns:
+            dict with company profile details
+        """
+        self._ensure_security_ids()
+        security_id = self.security_id_map.get(symbol.upper())
+        if not security_id:
+            print(f"Symbol '{symbol}' not found in security map.")
+            return {}
+
+        url = f"{self.BASE_URL}/api/nots/security/profile/{security_id}"
+        cache_key = f"sec_profile_{symbol.upper()}"
+
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        try:
+            response = self.session.get(url, headers=self._get_auth_headers(), timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if self.cache and use_cache:
+                self.cache.set(cache_key, data, ttl=86400)
+            return data
+        except Exception as e:
+            print(f"Error fetching security profile for {symbol}: {e}")
+            return {}
+
+    def get_board_of_directors(self, symbol: str, use_cache: bool = True) -> list:
+        """
+        Get board of directors for a company.
+
+        Endpoint: GET /api/nots/security/boardOfDirectors/{security_id}
+
+        Args:
+            symbol:    Stock ticker e.g. "NABIL"
+            use_cache: Whether to use caching (default: True)
+
+        Returns:
+            List of BOD member dicts with name, designation, etc.
+        """
+        self._ensure_security_ids()
+        security_id = self.security_id_map.get(symbol.upper())
+        if not security_id:
+            print(f"Symbol '{symbol}' not found in security map.")
+            return []
+
+        url = f"{self.BASE_URL}/api/nots/security/boardOfDirectors/{security_id}"
+        cache_key = f"bod_{symbol.upper()}"
+
+        if use_cache and self.cache:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        try:
+            response = self.session.get(url, headers=self._get_auth_headers(), timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list) and self.cache and use_cache:
+                self.cache.set(cache_key, data, ttl=86400)
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            print(f"Error fetching board of directors for {symbol}: {e}")
+            return []
+
     def clear_cache(self):
         """Manually clear all cached data"""
         if self.cache:
@@ -1324,6 +1733,128 @@ class AsyncNepse:
         """Async get top gainers"""
         if not self.access_token: await self.authenticate()
         url = f"{self.BASE_URL}/api/nots/top-ten/top-gainer"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.get(url, headers=headers) as response:
+                return await response.json()
+
+    async def get_top_losers(self):
+        """Async get top losers"""
+        if not self.access_token: await self.authenticate()
+        url = f"{self.BASE_URL}/api/nots/top-ten/top-loser"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.get(url, headers=headers) as response:
+                return await response.json()
+
+    async def get_security_list(self):
+        """Async get list of all securities (non-delisted)"""
+        if not self.access_token: await self.authenticate()
+        cache_key = "security_list"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+        url = f"{self.BASE_URL}/api/nots/security?nonDelisted=true"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.get(url, headers=headers) as response:
+                data = await response.json()
+                self.cache.set(cache_key, data, ttl=3600)
+                return data
+
+    async def _ensure_security_ids(self):
+        if hasattr(self, 'security_id_map') and self.security_id_map:
+            return
+        securities = await self.get_security_list()
+        self.security_id_map = {
+            s['symbol']: s['id'] for s in securities if 'symbol' in s and 'id' in s
+        }
+
+    async def get_corporate_actions(self, symbol: str) -> list:
+        """Async get corporate action / dividend history table (bonus %, cash %, right %)"""
+        if not self.access_token: await self.authenticate()
+        await self._ensure_security_ids()
+        sec_id = self.security_id_map.get(symbol.upper())
+        if not sec_id: return []
+        url = f"{self.BASE_URL}/api/nots/security/corporate-actions/{sec_id}"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.get(url, headers=headers) as response:
+                return await response.json()
+
+    async def get_dividend_history(self, symbol: str) -> list:
+        """Conventional alias for get_corporate_actions"""
+        return await self.get_corporate_actions(symbol)
+
+    async def get_financial_reports(self, symbol: str) -> list:
+        """Async get quarterly and annual financial reports"""
+        if not self.access_token: await self.authenticate()
+        await self._ensure_security_ids()
+        sec_id = self.security_id_map.get(symbol.upper())
+        if not sec_id: return []
+        url = f"{self.BASE_URL}/api/nots/application/reports/{sec_id}"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.get(url, headers=headers) as response:
+                return await response.json()
+
+    async def get_dividends(self, symbol: str) -> list:
+        """Async get dividend notices, AGM dates, book closure and filing PDFs"""
+        if not self.access_token: await self.authenticate()
+        await self._ensure_security_ids()
+        sec_id = self.security_id_map.get(symbol.upper())
+        if not sec_id: return []
+        url = f"{self.BASE_URL}/api/nots/application/dividend/{sec_id}"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.get(url, headers=headers) as response:
+                return await response.json()
+
+    async def get_dividend(self, symbol: str) -> list:
+        """Conventional alias for get_dividends"""
+        return await self.get_dividends(symbol)
+
+    async def get_stock_ohlcv(self, symbol: str, page: int = 1, size: int = 500, date: str = None) -> list:
+        """Async get per-security datewise OHLCV price history"""
+        if not self.access_token: await self.authenticate()
+        await self._ensure_security_ids()
+        sec_id = self.security_id_map.get(symbol.upper())
+        if not sec_id: return []
+
+        if page > 1:
+            query = f"?page={page - 1}&size={size}"
+        else:
+            query = f"?size={size}"
+        if date: query += f"&businessDate={date}"
+
+        url = f"{self.BASE_URL}/api/nots/market/security/price/{sec_id}{query}"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.get(url, headers=headers) as response:
+                raw = await response.json()
+                if isinstance(raw, dict):
+                    return raw.get("content") or (raw.get("securityDailyTradeStatVos") or {}).get("content", [])
+                return raw if isinstance(raw, list) else []
+
+    async def get_security_profile(self, symbol: str) -> dict:
+        """Async get company profile"""
+        if not self.access_token: await self.authenticate()
+        await self._ensure_security_ids()
+        sec_id = self.security_id_map.get(symbol.upper())
+        if not sec_id: return {}
+        url = f"{self.BASE_URL}/api/nots/security/profile/{sec_id}"
+        headers = {"Authorization": f"Salter {self.access_token}"}
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+            async with session.get(url, headers=headers) as response:
+                return await response.json()
+
+    async def get_board_of_directors(self, symbol: str) -> list:
+        """Async get board of directors list"""
+        if not self.access_token: await self.authenticate()
+        await self._ensure_security_ids()
+        sec_id = self.security_id_map.get(symbol.upper())
+        if not sec_id: return []
+        url = f"{self.BASE_URL}/api/nots/security/boardOfDirectors/{sec_id}"
         headers = {"Authorization": f"Salter {self.access_token}"}
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
             async with session.get(url, headers=headers) as response:
