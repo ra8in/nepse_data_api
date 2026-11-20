@@ -6,17 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.0.0.6] - 2026-11-20
-
-### Fixed
-- `get_stock_ohlcv(symbol, page, size, date)` — Fixed malformed query string `?&size=` → `?size=` (affected both sync `Nepse` and async `AsyncNepse`).
-- `get_broker_trades(broker_id)` — Deduplicated records by `contractId` to prevent the same trade appearing twice (once from `buyerBroker` query and once from `sellerBroker` query).
-
-### Improved
-- `get_agm(symbol)` — Hardened with `use_cache=True`, `timeout=10`, `try/except`, `raise_for_status()`, and proper cache TTL (3600s). Now consistent with all other symbol-based methods.
-
----
-
 ## [1.0.0.5] - 2026-11-20
 
 ### Added
@@ -26,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `get_stock_ohlcv(symbol, page, size, date)` — Per-security datewise OHLCV price history (open, high, low, close, volume, average price). (Sync & Async)
 - `get_security_profile(symbol)` — Company profile with contact information, regulatory sector, and description. (Sync & Async)
 - `get_board_of_directors(symbol)` — List of board of directors for a security. (Sync & Async)
-- Added `get_top_losers()`, `get_dividends()`, `get_security_list()` to `AsyncNepse`.
+- `get_top_losers()`, `get_dividends()`, `get_security_list()` to `AsyncNepse`.
 
 ---
 
